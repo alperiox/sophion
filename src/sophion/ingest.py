@@ -16,7 +16,8 @@ from sophion.utils import slugify
 
 def ingest_url(url: str, store: Store) -> Path:
     """Fetch a URL, convert to markdown, and save to raw/."""
-    response = httpx.get(url, follow_redirects=True, timeout=30.0)
+    headers = {"User-Agent": "Sophion/0.1.0 (knowledge-base ingester)"}
+    response = httpx.get(url, follow_redirects=True, timeout=30.0, headers=headers)
     response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")
