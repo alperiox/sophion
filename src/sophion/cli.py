@@ -126,3 +126,17 @@ def query(ctx, question: str):
 
     answer = backend.query(prompt, system_prompt=system_prompt)
     console.print(answer)
+
+
+@cli.command()
+@click.pass_context
+def tui(ctx):
+    """Launch the interactive TUI."""
+    from sophion.tui.app import SophionApp
+
+    store: Store = ctx.obj["store"]
+    config: Config = ctx.obj["config"]
+    store.initialize()
+
+    app = SophionApp(config=config, store=store)
+    app.run()
