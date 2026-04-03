@@ -1,0 +1,14 @@
+# Sophion MCP server configuration for Hermes Agent
+# Add this to your ~/.hermes/config.yaml under mcp_servers:
+
+mcp_servers:
+  sophion:
+    command: "uv"
+    args: ["--directory", "/path/to/sophion", "run", "sophion-mcp"]
+    # Or if installed globally:
+    # command: "sophion-mcp"
+
+# Add this to your skills configuration:
+skills:
+  external_dirs:
+    - /path/to/sophion/skills
