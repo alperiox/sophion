@@ -2,6 +2,7 @@
 
 import re
 from datetime import datetime
+from pathlib import Path
 
 import frontmatter
 from mcp.server.fastmcp import FastMCP
@@ -14,20 +15,42 @@ from sophion.latex_render import render_math_in_text
 from sophion.store import Store
 from sophion.utils import slugify
 
-# Initialize global state
-_config = Config.load()
-_store = Store(_config)
-_store.initialize()
+# --- Multi-base state management ---
+
+_DEFAULT_BASES_DIR = Path.home() / ".sophion" / "bases"
+
+
+class _ServerState:
+    """Mutable server state supporting multiple knowledge bases."""
+
+    def __init__(self, base_dir: Path | None = None):
+        self.bases_dir = _DEFAULT_BASES_DIR
+        if base_dir:
+            config = Config(base_dir=base_dir)
+        else:
+            config = Config.load()
+        self.store = Store(config)
+        self.store.initialize()
+        self.config = config
+        self.current_base_name: str | None = None
+
+    def switch_base(self, name: str) -> Store:
+        """Switch to a named knowledge base under bases_dir."""
+        base_path = self.bases_dir / name
+        self.config = Config(base_dir=base_path)
+        self.store = Store(self.config)
+        self.store.initialize()
+        self.current_base_name = name
+        return self.store
+
+
+_state = _ServerState()
 
 mcp_app = FastMCP("sophion")
 
 
 def _get_store() -> Store:
-    return _store
-
-
-def _get_tracker() -> GapTracker:
-    return GapTracker(_store.learner_state / "gaps.json")
+    return _state.store
 
 
 # --- Internal functions (testable without MCP) ---
@@ -95,7 +118,7 @@ def _compile_knowledge(store: Store) -> str:
     from sophion.backend import get_backend
     from sophion.compile import compile_all
 
-    backend = get_backend(_config)
+    backend = get_backend(_state.config)
     results = compile_all(store, backend)
 
     if results:
@@ -229,6 +252,70 @@ def _lint_knowledge(store: Store) -> str:
     return summary + "\n".join(issues)
 
 
+def _list_bases() -> str:
+    """List all available knowledge bases."""
+    bases_dir = _state.bases_dir
+    if not bases_dir.exists():
+        current = f"Using default base at {_state.store.base}"
+        if _state.current_base_name:
+            current = f"Current: {_state.current_base_name}"
+        return f"No named bases found.\n{current}"
+
+    bases = sorted(
+        d.name for d in bases_dir.iterdir() if d.is_dir()
+    )
+
+    if not bases:
+        return f"No named bases found.\nUsing default base at {_state.store.base}"
+
+    lines = []
+    for name in bases:
+        store = Store(Config(base_dir=bases_dir / name))
+        wiki_count = len([
+            p for p in store.wiki.glob("*.md")
+            if p.exists() and p.name != "_index.md"
+        ]) if store.wiki.exists() else 0
+        marker = " ← active" if name == _state.current_base_name else ""
+        lines.append(f"- {name} ({wiki_count} articles){marker}")
+
+    header = f"{len(bases)} knowledge base(s):\n"
+    if not _state.current_base_name:
+        header += f"(using default base at {_state.store.base})\n"
+    return header + "\n".join(lines)
+
+
+def _create_base(name: str) -> str:
+    """Create a new named knowledge base."""
+    base_path = _state.bases_dir / name
+    if base_path.exists():
+        return f"Base '{name}' already exists. Use switch_base to activate it."
+
+    config = Config(base_dir=base_path)
+    store = Store(config)
+    store.initialize()
+    return f"Created knowledge base '{name}' at {base_path}"
+
+
+def _switch_base(name: str) -> str:
+    """Switch to a named knowledge base."""
+    base_path = _state.bases_dir / name
+    if not base_path.exists():
+        return f"Base '{name}' not found. Use create_base to create it first."
+
+    store = _state.switch_base(name)
+
+    wiki_count = len([
+        p for p in store.wiki.glob("*.md") if p.name != "_index.md"
+    ])
+    gap_tracker = GapTracker(store.learner_state / "gaps.json")
+    open_gaps = len(gap_tracker.list_open())
+
+    return (
+        f"Switched to '{name}' — "
+        f"{wiki_count} article(s), {open_gaps} open gap(s)"
+    )
+
+
 # --- MCP Tool Definitions ---
 
 
@@ -355,6 +442,36 @@ def lint_knowledge() -> str:
     expand thin ones, add cross-references, or compile raw documents.
     """
     return _lint_knowledge(_get_store())
+
+
+@mcp_app.tool()
+def list_bases() -> str:
+    """List all available knowledge bases and show which one is active.
+
+    Knowledge bases are separate wikis for different research topics.
+    Each has its own articles, gaps, and conversation history.
+    """
+    return _list_bases()
+
+
+@mcp_app.tool()
+def create_base(name: str) -> str:
+    """Create a new named knowledge base for a research topic.
+
+    Args:
+        name: Name for the knowledge base (e.g., 'diffusion', 'attention', 'rl')
+    """
+    return _create_base(name)
+
+
+@mcp_app.tool()
+def switch_base(name: str) -> str:
+    """Switch to a different knowledge base. All subsequent operations will use this base.
+
+    Args:
+        name: Name of the knowledge base to switch to
+    """
+    return _switch_base(name)
 
 
 def main():

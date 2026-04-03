@@ -3,16 +3,21 @@ import re
 import frontmatter
 
 from sophion.mcp_server import (
+    _ServerState,
     _add_gap,
     _compile_knowledge,
+    _create_base,
     _ingest_file,
     _lint_knowledge,
     _list_articles,
+    _list_bases,
     _list_gaps,
     _read_article,
     _render_math,
     _resolve_gap,
     _search_articles,
+    _state,
+    _switch_base,
     _update_article,
 )
 
@@ -228,3 +233,117 @@ def test_lint_finds_uncompiled(store):
     result = _lint_knowledge(store)
     assert "uncompiled" in result
     assert "raw-doc.md" in result
+
+
+# --- Multi-base management tests ---
+
+
+def test_list_bases_none(tmp_path):
+    state = _ServerState(base_dir=tmp_path / "default")
+    state.bases_dir = tmp_path / "bases"  # doesn't exist
+    old_state_bases = _state.bases_dir
+    _state.bases_dir = state.bases_dir
+    try:
+        result = _list_bases()
+        assert "no named bases" in result.lower()
+    finally:
+        _state.bases_dir = old_state_bases
+
+
+def test_create_base(tmp_path):
+    old_bases = _state.bases_dir
+    _state.bases_dir = tmp_path / "bases"
+    try:
+        result = _create_base("diffusion")
+        assert "created" in result.lower()
+        assert (tmp_path / "bases" / "diffusion" / "knowledge" / "wiki").is_dir()
+    finally:
+        _state.bases_dir = old_bases
+
+
+def test_create_base_already_exists(tmp_path):
+    old_bases = _state.bases_dir
+    _state.bases_dir = tmp_path / "bases"
+    try:
+        _create_base("diffusion")
+        result = _create_base("diffusion")
+        assert "already exists" in result.lower()
+    finally:
+        _state.bases_dir = old_bases
+
+
+def test_switch_base(tmp_path):
+    old_bases = _state.bases_dir
+    old_store = _state.store
+    old_name = _state.current_base_name
+    _state.bases_dir = tmp_path / "bases"
+    try:
+        _create_base("attention")
+        result = _switch_base("attention")
+        assert "switched" in result.lower()
+        assert "attention" in result.lower()
+        assert _state.current_base_name == "attention"
+        assert _state.store.base == tmp_path / "bases" / "attention"
+    finally:
+        _state.bases_dir = old_bases
+        _state.store = old_store
+        _state.current_base_name = old_name
+
+
+def test_switch_base_not_found(tmp_path):
+    old_bases = _state.bases_dir
+    _state.bases_dir = tmp_path / "bases"
+    try:
+        result = _switch_base("nonexistent")
+        assert "not found" in result.lower()
+    finally:
+        _state.bases_dir = old_bases
+
+
+def test_list_bases_shows_created(tmp_path):
+    old_bases = _state.bases_dir
+    old_store = _state.store
+    old_name = _state.current_base_name
+    _state.bases_dir = tmp_path / "bases"
+    try:
+        _create_base("diffusion")
+        _create_base("attention")
+        result = _list_bases()
+        assert "2 knowledge base" in result
+        assert "diffusion" in result
+        assert "attention" in result
+    finally:
+        _state.bases_dir = old_bases
+        _state.store = old_store
+        _state.current_base_name = old_name
+
+
+def test_switch_base_isolates_articles(tmp_path):
+    old_bases = _state.bases_dir
+    old_store = _state.store
+    old_name = _state.current_base_name
+    _state.bases_dir = tmp_path / "bases"
+    try:
+        # Create two bases with different articles
+        _create_base("base-a")
+        _switch_base("base-a")
+        _update_article(_state.store, "Article A", "Content for A")
+
+        _create_base("base-b")
+        _switch_base("base-b")
+        _update_article(_state.store, "Article B", "Content for B")
+
+        # base-b should only have Article B
+        result_b = _list_articles(_state.store)
+        assert "Article B" in result_b
+        assert "Article A" not in result_b
+
+        # Switch back to base-a — should only have Article A
+        _switch_base("base-a")
+        result_a = _list_articles(_state.store)
+        assert "Article A" in result_a
+        assert "Article B" not in result_a
+    finally:
+        _state.bases_dir = old_bases
+        _state.store = old_store
+        _state.current_base_name = old_name
