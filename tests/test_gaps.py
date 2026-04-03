@@ -1,6 +1,6 @@
 import json
 
-from sophion.gaps import Gap, GapTracker
+from sophion.gaps import Gap, GapTracker, StudySession
 
 
 def test_gap_creation():
@@ -71,3 +71,59 @@ def test_gap_tracker_empty(tmp_path):
     tracker = GapTracker(tmp_path / "gaps.json")
     assert tracker.list_open() == []
     assert tracker.list_all() == []
+
+
+# --- StudySession tests ---
+
+
+def test_study_session_starts_inactive(tmp_path):
+    session = StudySession(tmp_path / "session.json")
+    assert session.is_active() is False
+
+
+def test_study_session_start(tmp_path):
+    session = StudySession(tmp_path / "session.json")
+    started = session.start()
+    assert session.is_active() is True
+    assert started != ""
+
+
+def test_study_session_stop(tmp_path):
+    session = StudySession(tmp_path / "session.json")
+    session.start()
+    started = session.stop()
+    assert session.is_active() is False
+    assert started != ""
+
+
+def test_study_session_persistence(tmp_path):
+    path = tmp_path / "session.json"
+    s1 = StudySession(path)
+    s1.start()
+
+    s2 = StudySession(path)
+    assert s2.is_active() is True
+
+    s2.stop()
+
+    s3 = StudySession(path)
+    assert s3.is_active() is False
+
+
+def test_gaps_since(tmp_path):
+    tracker = GapTracker(tmp_path / "gaps.json")
+
+    # Add a gap, record the time, add another
+    gap1 = tracker.add("old", "Old question")
+
+    from datetime import datetime
+    midpoint = datetime.now().isoformat()
+
+    gap2 = tracker.add("new", "New question")
+    tracker.resolve(gap1.id, "Resolved now")
+
+    added, resolved = tracker.gaps_since(midpoint)
+    assert len(added) == 1
+    assert added[0].topic == "new"
+    assert len(resolved) == 1
+    assert resolved[0].topic == "old"

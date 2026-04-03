@@ -92,3 +92,53 @@ class GapTracker:
     def list_all(self) -> list[Gap]:
         """List all gaps (open and resolved)."""
         return list(self.gaps)
+
+    def gaps_since(self, since: str) -> tuple[list[Gap], list[Gap]]:
+        """Return (added, resolved) gaps since a given ISO timestamp."""
+        added = [g for g in self.gaps if g.created_at >= since]
+        resolved = [
+            g for g in self.gaps
+            if g.status == "resolved" and g.resolved_at >= since
+        ]
+        return added, resolved
+
+
+class StudySession:
+    """Tracks whether study mode is active, with session persistence."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.active = False
+        self.started_at = ""
+        self._load()
+
+    def _load(self):
+        if self.path.exists():
+            data = json.loads(self.path.read_text())
+            self.active = data.get("active", False)
+            self.started_at = data.get("started_at", "")
+
+    def _save(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps({
+            "active": self.active,
+            "started_at": self.started_at,
+        }, indent=2))
+
+    def start(self) -> str:
+        """Start a study session. Returns the start timestamp."""
+        self.active = True
+        self.started_at = datetime.now().isoformat()
+        self._save()
+        return self.started_at
+
+    def stop(self) -> str:
+        """Stop the study session. Returns the start timestamp for summary."""
+        started = self.started_at
+        self.active = False
+        self.started_at = ""
+        self._save()
+        return started
+
+    def is_active(self) -> bool:
+        return self.active

@@ -17,7 +17,9 @@ from sophion.mcp_server import (
     _resolve_gap,
     _search_articles,
     _state,
+    _study_status,
     _switch_base,
+    _toggle_study_mode,
     _update_article,
 )
 
@@ -233,6 +235,46 @@ def test_lint_finds_uncompiled(store):
     result = _lint_knowledge(store)
     assert "uncompiled" in result
     assert "raw-doc.md" in result
+
+
+# --- Multi-base management tests ---
+
+
+# --- Study mode toggle tests ---
+
+
+def test_toggle_study_mode_on(store):
+    result = _toggle_study_mode(store)
+    assert "activated" in result.lower()
+    assert _study_status(store) == f"Study mode is ACTIVE (since {result.split('since ')[-1].rstrip(')')}" or "ACTIVE" in _study_status(store)
+
+
+def test_toggle_study_mode_off(store):
+    _toggle_study_mode(store)  # on
+    result = _toggle_study_mode(store)  # off
+    assert "ended" in result.lower()
+    assert "OFF" in _study_status(store)
+
+
+def test_toggle_study_mode_shows_gaps(store):
+    _add_gap(store, "diffusion", "What is ELBO?")
+    result = _toggle_study_mode(store)  # on
+    assert "diffusion" in result
+    assert "ELBO" in result
+
+
+def test_toggle_study_mode_summary(store):
+    _toggle_study_mode(store)  # on
+    _add_gap(store, "attention", "How does masking work?")
+    result = _toggle_study_mode(store)  # off
+    assert "ended" in result.lower()
+    assert "attention" in result
+    assert "masking" in result.lower()
+
+
+def test_study_status_off(store):
+    result = _study_status(store)
+    assert "OFF" in result
 
 
 # --- Multi-base management tests ---

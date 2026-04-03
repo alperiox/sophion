@@ -8,7 +8,7 @@ import frontmatter
 from mcp.server.fastmcp import FastMCP
 
 from sophion.config import Config
-from sophion.gaps import GapTracker
+from sophion.gaps import GapTracker, StudySession
 from sophion.ingest import ingest_file as _do_ingest_file
 from sophion.ingest import ingest_url as _do_ingest_url
 from sophion.latex_render import render_math_in_text
@@ -316,6 +316,54 @@ def _switch_base(name: str) -> str:
     )
 
 
+def _toggle_study_mode(store: Store) -> str:
+    """Toggle study mode on/off. Returns session summary when stopping."""
+    session = StudySession(store.learner_state / "study_session.json")
+
+    if session.is_active():
+        # Stopping — generate summary
+        started_at = session.stop()
+        tracker = GapTracker(store.learner_state / "gaps.json")
+        added, resolved = tracker.gaps_since(started_at)
+
+        lines = ["Study session ended."]
+        if added:
+            lines.append(f"\nGaps surfaced ({len(added)}):")
+            for gap in added:
+                lines.append(f"  - ({gap.topic}) {gap.question}")
+        if resolved:
+            lines.append(f"\nGaps resolved ({len(resolved)}):")
+            for gap in resolved:
+                lines.append(f"  - ({gap.topic}) {gap.question}")
+        if not added and not resolved:
+            lines.append("No gaps were added or resolved during this session.")
+
+        return "\n".join(lines)
+    else:
+        # Starting
+        session.start()
+        tracker = GapTracker(store.learner_state / "gaps.json")
+        open_gaps = tracker.list_open()
+
+        lines = ["Study mode activated. Challenger agent is now active."]
+        if open_gaps:
+            lines.append(f"\n{len(open_gaps)} open gap(s) to revisit:")
+            for gap in open_gaps:
+                lines.append(f"  - [{gap.id}] ({gap.topic}) {gap.question}")
+        else:
+            lines.append("No open gaps. What topic would you like to study?")
+
+        return "\n".join(lines)
+
+
+def _study_status(store: Store) -> str:
+    """Check if study mode is active."""
+    session = StudySession(store.learner_state / "study_session.json")
+    if session.is_active():
+        return f"Study mode is ACTIVE (since {session.started_at})"
+    return "Study mode is OFF"
+
+
 # --- MCP Tool Definitions ---
 
 
@@ -442,6 +490,25 @@ def lint_knowledge() -> str:
     expand thin ones, add cross-references, or compile raw documents.
     """
     return _lint_knowledge(_get_store())
+
+
+@mcp_app.tool()
+def toggle_study_mode() -> str:
+    """Toggle study mode on or off.
+
+    When activated: The challenger agent becomes active, surfacing knowledge gaps
+    and testing your understanding. Shows any open gaps to revisit.
+
+    When deactivated: Returns a session summary showing gaps surfaced and resolved
+    during the session. The challenger agent stops challenging.
+    """
+    return _toggle_study_mode(_get_store())
+
+
+@mcp_app.tool()
+def study_status() -> str:
+    """Check whether study mode is currently active or off."""
+    return _study_status(_get_store())
 
 
 @mcp_app.tool()
