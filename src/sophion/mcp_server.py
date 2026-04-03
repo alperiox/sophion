@@ -1,5 +1,8 @@
 """Sophion MCP server — exposes knowledge base tools for Hermes Agent."""
 
+import re
+from datetime import datetime
+
 import frontmatter
 from mcp.server.fastmcp import FastMCP
 
@@ -9,6 +12,7 @@ from sophion.ingest import ingest_file as _do_ingest_file
 from sophion.ingest import ingest_url as _do_ingest_url
 from sophion.latex_render import render_math_in_text
 from sophion.store import Store
+from sophion.utils import slugify
 
 # Initialize global state
 _config = Config.load()
@@ -125,6 +129,106 @@ def _resolve_gap(store: Store, gap_id: str, resolution: str) -> str:
     return f"Gap '{gap_id}' not found."
 
 
+def _update_article(store: Store, name: str, content: str) -> str:
+    """Create or overwrite a wiki article."""
+    slug = slugify(name)
+    path = store.wiki / f"{slug}.md"
+
+    is_new = not path.exists()
+
+    post = frontmatter.Post(
+        content,
+        title=name,
+        updated_at=datetime.now().isoformat(),
+    )
+    if is_new:
+        post["created_at"] = datetime.now().isoformat()
+
+    path.write_text(frontmatter.dumps(post))
+
+    action = "Created" if is_new else "Updated"
+    return f"{action} article: {slug}.md"
+
+
+def _lint_knowledge(store: Store) -> str:
+    """Scan the wiki for health issues and improvement suggestions."""
+    issues = []
+
+    articles = {}
+    for path in sorted(store.wiki.glob("*.md")):
+        if path.name == "_index.md":
+            continue
+        content = path.read_text()
+        post = frontmatter.load(str(path))
+        title = post.get("title", path.stem)
+        articles[path.stem] = {
+            "title": title,
+            "content": content,
+            "path": path,
+            "word_count": len(content.split()),
+        }
+
+    if not articles:
+        return "Knowledge base is empty. Nothing to lint."
+
+    # 1. Find broken wikilinks — [[referenced]] but no article exists
+    all_slugs = set(articles.keys())
+    for slug, info in articles.items():
+        wikilinks = re.findall(r"\[\[([^\]]+)\]\]", info["content"])
+        for link in wikilinks:
+            link_slug = slugify(link)
+            if link_slug and link_slug not in all_slugs:
+                issues.append(
+                    f"[broken-link] '{info['title']}' references [[{link}]] "
+                    f"but no article '{link_slug}' exists"
+                )
+
+    # 2. Find thin articles (under 100 words of content)
+    for slug, info in articles.items():
+        if info["word_count"] < 100:
+            issues.append(
+                f"[thin-article] '{info['title']}' has only "
+                f"{info['word_count']} words — consider expanding"
+            )
+
+    # 3. Find orphan articles (not referenced by any other article)
+    referenced_slugs = set()
+    for info in articles.values():
+        wikilinks = re.findall(r"\[\[([^\]]+)\]\]", info["content"])
+        for link in wikilinks:
+            referenced_slugs.add(slugify(link))
+
+    for slug in all_slugs:
+        if slug not in referenced_slugs:
+            issues.append(
+                f"[orphan] '{articles[slug]['title']}' is not referenced "
+                f"by any other article"
+            )
+
+    # 4. Check for missing index
+    index_path = store.wiki / "_index.md"
+    if not index_path.exists():
+        issues.append("[missing-index] No _index.md found — run compile to generate")
+
+    # 5. Check for uncompiled raw files
+    uncompiled = store.uncompiled_files()
+    if uncompiled:
+        names = [p.name for p in uncompiled]
+        issues.append(
+            f"[uncompiled] {len(uncompiled)} raw file(s) not yet compiled: "
+            f"{', '.join(names)}"
+        )
+
+    if not issues:
+        return (
+            f"Knowledge base is healthy. "
+            f"{len(articles)} article(s), no issues found."
+        )
+
+    summary = f"Found {len(issues)} issue(s) across {len(articles)} article(s):\n"
+    return summary + "\n".join(issues)
+
+
 # --- MCP Tool Definitions ---
 
 
@@ -220,6 +324,37 @@ def resolve_gap(gap_id: str, resolution: str) -> str:
         resolution: Your explanation of how you now understand this
     """
     return _resolve_gap(_get_store(), gap_id, resolution)
+
+
+@mcp_app.tool()
+def update_article(name: str, content: str) -> str:
+    """Create or update a wiki article. Use this to file outputs back into the knowledge base.
+
+    The article is saved with frontmatter (title, timestamps). If an article
+    with this name already exists, it is overwritten.
+
+    Args:
+        name: Article title (will be slugified for the filename)
+        content: Full markdown content of the article
+    """
+    return _update_article(_get_store(), name, content)
+
+
+@mcp_app.tool()
+def lint_knowledge() -> str:
+    """Run health checks on the knowledge base and report issues.
+
+    Checks for:
+    - Broken wikilinks ([[referenced]] but no article exists)
+    - Thin articles (under 100 words)
+    - Orphan articles (not referenced by any other article)
+    - Missing index file
+    - Uncompiled raw documents
+
+    Use the results to improve the wiki: create missing articles,
+    expand thin ones, add cross-references, or compile raw documents.
+    """
+    return _lint_knowledge(_get_store())
 
 
 def main():
