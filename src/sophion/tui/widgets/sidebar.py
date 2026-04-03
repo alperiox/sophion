@@ -43,6 +43,13 @@ class Sidebar(Widget):
             super().__init__()
             self.conversation_id = conversation_id
 
+    class KnowledgeItemSelected(Message):
+        """Posted when a knowledge base file is selected."""
+
+        def __init__(self, file_ref: str) -> None:
+            super().__init__()
+            self.file_ref = file_ref  # "wiki:filename.md" or "raw:filename.md"
+
     def compose(self) -> ComposeResult:
         yield Static("Conversations", classes="section-header")
         yield OptionList(id="conversation-list")
@@ -77,9 +84,13 @@ class Sidebar(Widget):
     def on_option_list_option_selected(
         self, event: OptionList.OptionSelected
     ) -> None:
-        """Handle conversation selection."""
+        """Handle selection of conversations or knowledge base items."""
         option_id = event.option.id
-        if option_id and not option_id.startswith(("wiki:", "raw:")):
+        if not option_id:
+            return
+        if option_id.startswith(("wiki:", "raw:")):
+            self.post_message(self.KnowledgeItemSelected(option_id))
+        else:
             self.post_message(self.ConversationSelected(option_id))
 
     def highlight_conversation(self, conversation_id: str):

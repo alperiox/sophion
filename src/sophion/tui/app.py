@@ -1,12 +1,12 @@
 """Sophion TUI — main application."""
 
-from pathlib import Path
-
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
+from textual.screen import ModalScreen
+from textual.widgets import Markdown, Static
 
 from sophion.backend import get_backend
 from sophion.config import Config
@@ -18,6 +18,46 @@ from sophion.tui.widgets.chat_view import ChatView
 from sophion.tui.widgets.message_input import MessageInput
 from sophion.tui.widgets.sidebar import Sidebar
 from sophion.tui.widgets.status_bar import StatusBar
+
+
+class DocumentViewer(ModalScreen):
+    """Modal overlay for viewing knowledge base documents."""
+
+    BINDINGS = [("escape", "dismiss", "Close")]
+
+    DEFAULT_CSS = """
+    DocumentViewer {
+        align: center middle;
+    }
+    #doc-container {
+        width: 80%;
+        height: 80%;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #doc-title {
+        text-style: bold;
+        margin: 0 0 1 0;
+    }
+    #doc-content {
+        height: 1fr;
+    }
+    """
+
+    def __init__(self, title: str, content: str):
+        super().__init__()
+        self.doc_title = title
+        self.doc_content = content
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="doc-container"):
+            yield Static(
+                f"[bold]{self.doc_title}[/bold]  (Esc to close)",
+                id="doc-title",
+                markup=True,
+            )
+            yield ScrollableContainer(Markdown(self.doc_content), id="doc-content")
 
 
 class SophionApp(App):
@@ -87,13 +127,18 @@ class SophionApp(App):
         self.query_one(StatusBar).article_count = wiki_count
 
     def _switch_conversation(self, conversation_id: str):
-        """Load and display a conversation."""
-        for convo in self.conversations:
-            if convo.id == conversation_id:
-                self.conversation = convo
-                break
-        else:
+        """Load and display a conversation (always reloads from disk)."""
+        path = self.store.conversations / f"{conversation_id}.json"
+        if not path.exists():
             return
+
+        self.conversation = Conversation.load(path)
+
+        # Update in-memory list with fresh data
+        for i, convo in enumerate(self.conversations):
+            if convo.id == conversation_id:
+                self.conversations[i] = self.conversation
+                break
 
         chat_view = self.query_one(ChatView)
         chat_view.load_messages(
@@ -141,7 +186,7 @@ class SophionApp(App):
 
     @work(exclusive=True)
     async def _send_to_backend(self, user_text: str) -> None:
-        """Send the conversation to the LLM backend asynchronously."""
+        """Send the conversation to the LLM backend, streaming the response."""
         chat_view = self.query_one(ChatView)
         status = self.query_one(StatusBar)
 
@@ -150,12 +195,26 @@ class SophionApp(App):
 
         try:
             prompt = build_prompt(self.conversation, self.store)
-            response = await self.backend.query(prompt, system_prompt=SYSTEM_PROMPT)
 
+            # Replace thinking indicator with empty assistant bubble for streaming
             chat_view.hide_thinking()
-            chat_view.add_message("assistant", response)
+            chat_view.add_message("assistant", "")
 
-            self.conversation.add_message("assistant", response)
+            full_response = ""
+            async for text in self.backend.stream_query(
+                prompt, system_prompt=SYSTEM_PROMPT
+            ):
+                full_response = text
+                chat_view.update_last_assistant(full_response)
+
+            # Fallback if streaming yielded nothing
+            if not full_response:
+                full_response = await self.backend.query(
+                    prompt, system_prompt=SYSTEM_PROMPT
+                )
+                chat_view.update_last_assistant(full_response)
+
+            self.conversation.add_message("assistant", full_response)
             self.conversation.save(self.store.conversations)
         except Exception as e:
             chat_view.hide_thinking()
@@ -173,6 +232,20 @@ class SophionApp(App):
         sidebar = self.query_one(Sidebar)
         self.sidebar_visible = not self.sidebar_visible
         sidebar.set_class(not self.sidebar_visible, "hidden")
+
+    def on_sidebar_knowledge_item_selected(
+        self, event: Sidebar.KnowledgeItemSelected
+    ) -> None:
+        """Handle knowledge base file selection — open document viewer."""
+        prefix, filename = event.file_ref.split(":", 1)
+        if prefix == "wiki":
+            path = self.store.wiki / filename
+        else:
+            path = self.store.raw / filename
+
+        if path.exists():
+            content = path.read_text()
+            self.push_screen(DocumentViewer(filename, content))
 
     def watch_sidebar_visible(self, visible: bool) -> None:
         """React to sidebar visibility change."""
