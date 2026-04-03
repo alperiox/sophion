@@ -294,17 +294,25 @@ def test_list_bases_none(tmp_path):
 
 def test_create_base(tmp_path):
     old_bases = _state.bases_dir
+    old_store = _state.store
+    old_name = _state.current_base_name
     _state.bases_dir = tmp_path / "bases"
     try:
         result = _create_base("diffusion")
         assert "created" in result.lower()
+        assert "switched" in result.lower()
         assert (tmp_path / "bases" / "diffusion" / "knowledge" / "wiki").is_dir()
+        assert _state.current_base_name == "diffusion"
     finally:
         _state.bases_dir = old_bases
+        _state.store = old_store
+        _state.current_base_name = old_name
 
 
 def test_create_base_already_exists(tmp_path):
     old_bases = _state.bases_dir
+    old_store = _state.store
+    old_name = _state.current_base_name
     _state.bases_dir = tmp_path / "bases"
     try:
         _create_base("diffusion")
@@ -312,6 +320,8 @@ def test_create_base_already_exists(tmp_path):
         assert "already exists" in result.lower()
     finally:
         _state.bases_dir = old_bases
+        _state.store = old_store
+        _state.current_base_name = old_name
 
 
 def test_switch_base(tmp_path):

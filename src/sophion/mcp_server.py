@@ -116,15 +116,24 @@ def _render_math(text: str) -> str:
 
 def _compile_knowledge(store: Store) -> str:
     from sophion.backend import get_backend
-    from sophion.compile import compile_all
+    from sophion.compile import compile_document, update_index
 
+    uncompiled = store.uncompiled_files()
+    if not uncompiled:
+        return "Nothing to compile — all documents are up to date."
+
+    # Compile ONE document at a time to avoid timeouts.
+    # The MCP tool should be called repeatedly for multiple docs.
+    raw_path = uncompiled[0]
     backend = get_backend(_state.config)
-    results = compile_all(store, backend)
+    wiki_path = compile_document(raw_path, store, backend)
+    update_index(store, backend)
 
-    if results:
-        names = [p.name for p in results]
-        return f"Compiled {len(results)} document(s): {', '.join(names)}"
-    return "Nothing to compile — all documents are up to date."
+    remaining = len(uncompiled) - 1
+    msg = f"Compiled: {wiki_path.name}"
+    if remaining > 0:
+        msg += f"\n{remaining} document(s) still pending — call compile_knowledge again."
+    return msg
 
 
 def _list_gaps(store: Store) -> str:
@@ -285,7 +294,7 @@ def _list_bases() -> str:
 
 
 def _create_base(name: str) -> str:
-    """Create a new named knowledge base."""
+    """Create a new named knowledge base and switch to it."""
     base_path = _state.bases_dir / name
     if base_path.exists():
         return f"Base '{name}' already exists. Use switch_base to activate it."
@@ -293,7 +302,11 @@ def _create_base(name: str) -> str:
     config = Config(base_dir=base_path)
     store = Store(config)
     store.initialize()
-    return f"Created knowledge base '{name}' at {base_path}"
+
+    # Auto-switch to the new base
+    _state.switch_base(name)
+
+    return f"Created and switched to knowledge base '{name}'"
 
 
 def _switch_base(name: str) -> str:
@@ -417,8 +430,11 @@ def ingest_file(file_path: str) -> str:
 
 @mcp_app.tool()
 def compile_knowledge() -> str:
-    """Compile all unprocessed raw documents into wiki articles using the LLM.
-    This creates structured wiki articles from raw ingested material.
+    """Compile the next unprocessed raw document into a wiki article using the LLM.
+
+    Processes ONE document per call to avoid timeouts. If there are more
+    uncompiled documents, the response will say how many remain — call
+    this tool again to compile the next one.
     """
     return _compile_knowledge(_get_store())
 

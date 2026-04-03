@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import frontmatter
 
-from sophion.ingest import ingest_file, ingest_url
+from sophion.ingest import _normalize_url, ingest_file, ingest_url
 
 
 def test_ingest_url(store):
@@ -91,3 +91,31 @@ def test_ingest_file_preserves_existing_frontmatter(store, tmp_path):
     assert loaded["title"] == "Original Title"
     assert loaded["author"] == "Alper"
     assert loaded["compiled"] is False
+
+
+# --- URL normalization tests ---
+
+
+def test_normalize_arxiv_abs():
+    result = _normalize_url("https://arxiv.org/abs/2106.09685")
+    assert result == "https://ar5iv.labs.arxiv.org/html/2106.09685"
+
+
+def test_normalize_arxiv_pdf():
+    result = _normalize_url("https://arxiv.org/pdf/2106.09685")
+    assert result == "https://ar5iv.labs.arxiv.org/html/2106.09685"
+
+
+def test_normalize_arxiv_pdf_with_extension():
+    result = _normalize_url("https://arxiv.org/pdf/2106.09685.pdf")
+    assert result == "https://ar5iv.labs.arxiv.org/html/2106.09685"
+
+
+def test_normalize_non_arxiv_unchanged():
+    url = "https://example.com/article"
+    assert _normalize_url(url) == url
+
+
+def test_normalize_ar5iv_unchanged():
+    url = "https://ar5iv.labs.arxiv.org/html/2106.09685"
+    assert _normalize_url(url) == url

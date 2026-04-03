@@ -14,8 +14,27 @@ from sophion.store import Store
 from sophion.utils import slugify
 
 
+def _normalize_url(url: str) -> str:
+    """Convert paper URLs to their best HTML version for ingestion.
+
+    - arxiv.org/abs/XXXX → ar5iv.labs.arxiv.org/html/XXXX (full HTML paper)
+    - arxiv.org/pdf/XXXX → ar5iv.labs.arxiv.org/html/XXXX (avoid binary PDF)
+    """
+    parsed = urlparse(url)
+
+    if parsed.netloc in ("arxiv.org", "www.arxiv.org"):
+        # Extract paper ID from /abs/XXXX or /pdf/XXXX
+        match = re.match(r"/(abs|pdf)/(.+?)(?:\.pdf)?$", parsed.path)
+        if match:
+            paper_id = match.group(2)
+            return f"https://ar5iv.labs.arxiv.org/html/{paper_id}"
+
+    return url
+
+
 def ingest_url(url: str, store: Store) -> Path:
     """Fetch a URL, convert to markdown, and save to raw/."""
+    url = _normalize_url(url)
     headers = {"User-Agent": "Sophion/0.1.0 (knowledge-base ingester)"}
     response = httpx.get(url, follow_redirects=True, timeout=30.0, headers=headers)
     response.raise_for_status()
