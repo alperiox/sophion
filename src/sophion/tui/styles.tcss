@@ -1,0 +1,33 @@
+Screen {
+    layout: grid;
+    grid-size: 1;
+}
+
+#app-grid {
+    layout: horizontal;
+    width: 100%;
+    height: 1fr;
+}
+
+#main-panel {
+    width: 1fr;
+    height: 100%;
+    layout: vertical;
+}
+
+ChatView {
+    width: 1fr;
+    height: 1fr;
+}
+
+MessageInput {
+    width: 100%;
+}
+
+Sidebar {
+    width: 32;
+}
+
+.hidden {
+    display: none;
+}
