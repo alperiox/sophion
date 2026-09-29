@@ -116,6 +116,14 @@ If your harness has no skill mechanism, paste the contents of
 `skills/sophion-study/SKILL.md` into your system prompt instead — it's plain
 markdown instructions, nothing harness-specific.
 
+#### A note on the LLM backend
+
+The MCP tools are harness-agnostic, but the *compilation* step is not: `compile`,
+`query`, and the `compile_knowledge` tool shell out to the Claude Code CLI
+(`claude -p`). You need the `claude` binary on your PATH for those, whichever
+harness hosts the MCP server. Reading, searching, linting, gap tracking, and
+study mode have no such dependency.
+
 #### Using it
 
 Once the server is registered, Sophion's 17 tools are available. Just talk naturally:
