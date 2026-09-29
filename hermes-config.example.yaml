@@ -1,5 +1,8 @@
-# Sophion MCP server configuration for Hermes Agent
+# Sophion MCP server configuration for Hermes Agent.
 # Add this to your ~/.hermes/config.yaml under mcp_servers:
+#
+# Sophion is a plain MCP stdio server and is not Hermes-specific — see
+# mcp-config.example.json for the generic JSON form other MCP clients use.
 
 mcp_servers:
   sophion:

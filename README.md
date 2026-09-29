@@ -1,6 +1,6 @@
 # Sophion
 
-A personal knowledge engine that compiles research into a structured wiki and challenges you to actually understand it. Runs as a [Hermes Agent](https://github.com/NousResearch/hermes-agent) plugin or standalone CLI/TUI.
+A personal knowledge engine that compiles research into a structured wiki and challenges you to actually understand it. Plugs into any MCP-capable agent — [Claude Code](https://claude.com/claude-code), [Hermes Agent](https://github.com/NousResearch/hermes-agent), Codex, Cursor — or runs standalone as a CLI/TUI.
 
 Inspired by [Andrej Karpathy's LLM Knowledge Bases](https://x.com/karpathy/status/1911070200111272246) concept, with an added learning layer: a challenger agent that surfaces gaps in your understanding, tests your knowledge through Socratic questioning, and tracks what you've verified vs. what you've just accepted.
 
@@ -10,7 +10,7 @@ Inspired by [Andrej Karpathy's LLM Knowledge Bases](https://x.com/karpathy/statu
 Raw sources (papers, articles, URLs)
     → Ingest into raw/
     → LLM compiles into wiki/ (structured markdown with backlinks)
-    → Query, study, and explore via Hermes or CLI
+    → Query, study, and explore via your agent or the CLI
     → Explorations get filed back into the wiki (compounding loop)
 ```
 
@@ -48,17 +48,40 @@ sophion query "What is the forward process in diffusion models?"
 sophion tui
 ```
 
-### Hermes Agent Integration (Recommended)
+### Agent Integration (Recommended)
 
-Sophion works best as a [Hermes Agent](https://github.com/NousResearch/hermes-agent) plugin, giving you a polished TUI, multi-platform access (Telegram, Discord, etc.), and a self-improving learning loop.
+Sophion ships a standard MCP server over stdio, so it works with any MCP-capable
+agent. Running it inside an agent is what unlocks the conversational interface and
+the self-improving learning loop.
 
-**1. Install Hermes Agent:**
+There are **two** pieces to wire up, and they're independent:
+
+1. **The MCP server** (`sophion-mcp`) — exposes the [17 tools](#mcp-tools-reference).
+   Configured the same way everywhere.
+2. **The study skill** (`skills/sophion-study/`) — teaches the agent the challenger
+   behaviour behind `/sophion-study`. Skill loading is *not* part of MCP, so this
+   step differs per harness.
+
+Replace `/path/to/sophion` below with the actual path to your clone.
+
+#### Claude Code
+
+```bash
+# 1. Register the MCP server
+claude mcp add sophion -- uv --directory /path/to/sophion run sophion-mcp
+
+# 2. Install the study skill
+ln -s /path/to/sophion/skills/sophion-study ~/.claude/skills/sophion-study
+```
+
+#### Hermes Agent
+
+Install Hermes, then add both pieces to `~/.hermes/config.yaml` (see
+`hermes-config.example.yaml`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
 ```
-
-**2. Add Sophion to Hermes config** (`~/.hermes/config.yaml`):
 
 ```yaml
 mcp_servers:
@@ -71,15 +94,31 @@ skills:
     - /path/to/sophion/skills
 ```
 
-Replace `/path/to/sophion` with the actual path to your Sophion clone.
+Hermes additionally gives you multi-platform access (Telegram, Discord, etc.).
 
-**3. Start Hermes and use Sophion:**
+#### Any other MCP client
 
-```bash
-hermes
+Most clients accept the standard `mcpServers` JSON block (see
+`mcp-config.example.json`):
+
+```json
+{
+  "mcpServers": {
+    "sophion": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/sophion", "run", "sophion-mcp"]
+    }
+  }
+}
 ```
 
-Sophion's 17 tools are automatically available. Just talk naturally:
+If your harness has no skill mechanism, paste the contents of
+`skills/sophion-study/SKILL.md` into your system prompt instead — it's plain
+markdown instructions, nothing harness-specific.
+
+#### Using it
+
+Once the server is registered, Sophion's 17 tools are available. Just talk naturally:
 
 ```
 You: ingest this article https://arxiv.org/abs/2006.11239
@@ -95,34 +134,34 @@ Study mode activates the **challenger agent** — it stops being a helpful assis
 ```
 You: /sophion-study
 
-Hermes: Study mode activated. 2 open gaps to revisit:
-        - [a3f2b1c0] (diffusion) Why does noise prediction = ELBO?
-        Want to revisit, or start a new topic?
+Agent: Study mode activated. 2 open gaps to revisit:
+       - [a3f2b1c0] (diffusion) Why does noise prediction = ELBO?
+       Want to revisit, or start a new topic?
 
 You: let's study the forward process
 
-Hermes: Before I show you the article — what do you think
-        q(x_t | x_0) looks like?
+Agent: Before I show you the article — what do you think
+       q(x_t | x_0) looks like?
 
 You: something with alpha bar... a Gaussian?
 
-Hermes: Good instinct. Can you write the exact expression?
+Agent: Good instinct. Can you write the exact expression?
 
 You: q(x_t | x_0) = N(x_t; sqrt(alpha_bar_t) * x_0, (1 - alpha_bar_t) * I)
 
-Hermes: Correct: q(xₜ | x₀) = 𝒩(xₜ; √ᾱₜ · x₀, (1−ᾱₜ)I).
-        Now — why does √ᾱₜ appear as the coefficient? What would
-        happen if it were just ᾱₜ without the square root?
+Agent: Correct: q(xₜ | x₀) = 𝒩(xₜ; √ᾱₜ · x₀, (1−ᾱₜ)I).
+       Now — why does √ᾱₜ appear as the coefficient? What would
+       happen if it were just ᾱₜ without the square root?
 
 ... the challenger keeps pushing until you truly understand ...
 
 You: I'm done studying
 
-Hermes: Study session ended.
-        Gaps surfaced (1):
-          - (diffusion) Reverse process posterior derivation
-        Gaps resolved (1):
-          - (diffusion) Why does noise prediction = ELBO?
+Agent: Study session ended.
+       Gaps surfaced (1):
+         - (diffusion) Reverse process posterior derivation
+       Gaps resolved (1):
+         - (diffusion) Why does noise prediction = ELBO?
 ```
 
 ### What the Challenger Does
@@ -209,7 +248,7 @@ The wiki is Obsidian-compatible — open `~/.sophion/knowledge/` (or any base di
 git clone https://github.com/alperiox/sophion.git
 cd sophion
 uv sync
-uv run pytest -v        # 128 tests
+uv run pytest -v        # 133 tests
 uv run sophion --help    # CLI commands
 ```
 

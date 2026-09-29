@@ -1,0 +1,9 @@
+{
+  "_comment": "Generic MCP client configuration for Sophion. Most MCP-capable agents (Claude Code, Codex, Cursor, ...) accept this shape. Replace /path/to/sophion with your clone path. See hermes-config.example.yaml for Hermes Agent, which uses YAML instead.",
+  "mcpServers": {
+    "sophion": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/sophion", "run", "sophion-mcp"]
+    }
+  }
+}

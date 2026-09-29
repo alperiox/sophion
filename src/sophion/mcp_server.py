@@ -1,4 +1,8 @@
-"""Sophion MCP server — exposes knowledge base tools for Hermes Agent."""
+"""Sophion MCP server — exposes knowledge base tools over MCP (stdio).
+
+Harness-agnostic: works with any MCP-capable client (Claude Code, Hermes Agent,
+Codex, Cursor, ...). Run via the `sophion-mcp` console script.
+"""
 
 import re
 from datetime import datetime
