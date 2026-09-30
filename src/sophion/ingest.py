@@ -14,6 +14,27 @@ from sophion.store import Store
 from sophion.utils import slugify
 
 
+def _target_path(directory: Path, filename: str, source: str) -> Path:
+    """Pick a free path in `directory`, reusing one already holding `source`.
+
+    Re-ingesting the same source overwrites its own file; a *different*
+    source with the same date and title gets a suffixed name instead of
+    silently replacing the existing document.
+    """
+    path = directory / filename
+    stem, suffix = path.stem, path.suffix
+    n = 1
+    while path.exists():
+        try:
+            if frontmatter.load(str(path)).get("source") == source:
+                return path
+        except Exception:
+            pass
+        n += 1
+        path = directory / f"{stem}-{n}{suffix}"
+    return path
+
+
 def _normalize_url(url: str) -> str:
     """Convert paper URLs to their best HTML version for ingestion.
 
@@ -62,7 +83,7 @@ def ingest_url(url: str, store: Store) -> Path:
         compiled=False,
     )
 
-    path = store.raw / filename
+    path = _target_path(store.raw, filename, url)
     path.write_text(frontmatter.dumps(post))
     return path
 
@@ -89,7 +110,7 @@ def ingest_file(file_path: str, store: Store) -> Path:
     slug = slugify(post["title"])
     filename = f"{today}-{slug}.md"
 
-    path = store.raw / filename
+    path = _target_path(store.raw, filename, str(source))
     path.write_text(frontmatter.dumps(post))
     return path
 

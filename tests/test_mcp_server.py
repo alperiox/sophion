@@ -399,3 +399,98 @@ def test_switch_base_isolates_articles(tmp_path):
         _state.bases_dir = old_bases
         _state.store = old_store
         _state.current_base_name = old_name
+
+
+# --- Path traversal / input validation regressions ---
+
+
+def test_read_article_rejects_parent_directory_escape(store):
+    """`name` must not be able to reach files outside the wiki."""
+    outside = store.wiki.parent / "TOPSECRET.md"
+    outside.write_text("secret-content-abc")
+
+    result = _read_article(store, "../TOPSECRET")
+    assert "secret-content-abc" not in result
+
+
+def test_read_article_glob_fallback_cannot_escape_wiki(store):
+    """The prefix-glob fallback must not match files outside the wiki."""
+    outside = store.wiki.parent / "creds_id_rsa"
+    outside.write_text("PRIVATEKEYDATA")
+
+    result = _read_article(store, "../creds_id_rsa")
+    assert "PRIVATEKEYDATA" not in result
+
+
+def test_read_article_rejects_absolute_path(store, tmp_path):
+    secret = tmp_path / "abs_secret.md"
+    secret.write_text("HIDDEN-ABS-CONTENT")
+
+    result = _read_article(store, str(secret.with_suffix("")))
+    assert "HIDDEN-ABS-CONTENT" not in result
+
+
+def test_create_base_rejects_traversal_name(tmp_path):
+    old_bases = _state.bases_dir
+    old_store = _state.store
+    old_config = _state.config
+    _state.bases_dir = tmp_path / "bases"
+    try:
+        escaped = tmp_path / "pwn"
+        result = _create_base("../pwn")
+        assert not escaped.exists(), "create_base escaped the bases directory"
+        assert "invalid" in result.lower()
+    finally:
+        _state.bases_dir = old_bases
+        _state.store = old_store
+        _state.config = old_config
+
+
+def test_create_base_rejects_absolute_name(tmp_path):
+    old_bases = _state.bases_dir
+    old_store = _state.store
+    old_config = _state.config
+    _state.bases_dir = tmp_path / "bases"
+    try:
+        target = tmp_path / "absolute-pwn"
+        result = _create_base(str(target))
+        assert not target.exists(), "an absolute name replaced the bases directory"
+        assert "invalid" in result.lower()
+    finally:
+        _state.bases_dir = old_bases
+        _state.store = old_store
+        _state.config = old_config
+
+
+def test_switch_base_rejects_traversal_name(tmp_path):
+    old_bases = _state.bases_dir
+    old_store = _state.store
+    old_config = _state.config
+    _state.bases_dir = tmp_path / "bases"
+    try:
+        result = _switch_base("..")
+        assert "invalid" in result.lower()
+        assert _state.store is old_store, "switch_base activated an escaped path"
+    finally:
+        _state.bases_dir = old_bases
+        _state.store = old_store
+        _state.config = old_config
+
+
+def test_switch_base_loads_that_bases_config_toml(tmp_path):
+    """Switching must honour the target base's config.toml, not reset to defaults."""
+    old_bases = _state.bases_dir
+    old_store = _state.store
+    old_config = _state.config
+    _state.bases_dir = tmp_path / "bases"
+    try:
+        _create_base("research")
+        (_state.bases_dir / "research" / "config.toml").write_text(
+            '[backend]\nprimary = "claude-code"\napi_key = "SECRET"\n'
+        )
+        _switch_base("research")
+        assert _state.config.backend.api_key == "SECRET"
+    finally:
+        _state.bases_dir = old_bases
+        _state.store = old_store
+        _state.config = old_config

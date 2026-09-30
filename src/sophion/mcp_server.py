@@ -23,15 +23,26 @@ from sophion.utils import slugify
 
 _DEFAULT_BASES_DIR = Path.home() / ".sophion" / "bases"
 
+# A base name becomes a directory name, and `Path("a/b") / "/tmp/x"` is
+# "/tmp/x" — an absolute component discards everything to its left. So names
+# arriving from tool calls must be a single, plain path segment.
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def _is_safe_name(name: str) -> bool:
+    """True if `name` is usable as a single directory or file component."""
+    return bool(name) and name not in (".", "..") and _SAFE_NAME.match(name) is not None
+
 
 class _ServerState:
     """Mutable server state supporting multiple knowledge bases."""
 
     def __init__(self, base_dir: Path | None = None):
-        self.bases_dir = _DEFAULT_BASES_DIR
         if base_dir:
-            config = Config(base_dir=base_dir)
+            self.bases_dir = base_dir / "bases"
+            config = Config.load(base_dir=base_dir)
         else:
+            self.bases_dir = _DEFAULT_BASES_DIR
             config = Config.load()
         self.store = Store(config)
         self.store.initialize()
@@ -40,8 +51,12 @@ class _ServerState:
 
     def switch_base(self, name: str) -> Store:
         """Switch to a named knowledge base under bases_dir."""
+        if not _is_safe_name(name):
+            raise ValueError(f"Invalid base name: {name!r}")
         base_path = self.bases_dir / name
-        self.config = Config(base_dir=base_path)
+        # Config.load, not Config(...): the bare constructor ignores the
+        # base's config.toml and silently resets backend/api_key.
+        self.config = Config.load(base_dir=base_path)
         self.store = Store(self.config)
         self.store.initialize()
         self.current_base_name = name
@@ -75,6 +90,11 @@ def _list_articles(store: Store) -> str:
 
 
 def _read_article(store: Store, name: str) -> str:
+    # Without this, `name` reaches outside the wiki two ways: a path with
+    # ".." or an absolute path, and the prefix glob below, which matches any
+    # extension and so can return non-article files.
+    if not _is_safe_name(name):
+        return f"Article '{name}' not found."
     path = store.wiki / f"{name}.md"
     if not path.exists():
         matches = list(store.wiki.glob(f"{name}*"))
@@ -299,11 +319,16 @@ def _list_bases() -> str:
 
 def _create_base(name: str) -> str:
     """Create a new named knowledge base and switch to it."""
+    if not _is_safe_name(name):
+        return (
+            f"Invalid base name '{name}'. Use letters, digits, '-', '_' or '.' "
+            "only — a base name must be a single directory name."
+        )
     base_path = _state.bases_dir / name
     if base_path.exists():
         return f"Base '{name}' already exists. Use switch_base to activate it."
 
-    config = Config(base_dir=base_path)
+    config = Config.load(base_dir=base_path)
     store = Store(config)
     store.initialize()
 
@@ -315,6 +340,11 @@ def _create_base(name: str) -> str:
 
 def _switch_base(name: str) -> str:
     """Switch to a named knowledge base."""
+    if not _is_safe_name(name):
+        return (
+            f"Invalid base name '{name}'. Use letters, digits, '-', '_' or '.' "
+            "only — a base name must be a single directory name."
+        )
     base_path = _state.bases_dir / name
     if not base_path.exists():
         return f"Base '{name}' not found. Use create_base to create it first."

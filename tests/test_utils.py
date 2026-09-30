@@ -23,3 +23,13 @@ def test_slugify_consecutive_dashes():
 
 def test_slugify_unicode():
     assert slugify("café latte") == "caf-latte"
+
+
+def test_slugify_non_ascii_title_does_not_produce_empty_slug():
+    """A title with no ASCII word characters must still yield a usable filename.
+
+    An empty slug makes callers write to '.md', a dotfile that distinct
+    articles then collide on.
+    """
+    assert slugify("量子力学") != ""
+    assert slugify("   ") != ""

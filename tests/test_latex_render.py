@@ -78,3 +78,19 @@ def test_render_math_in_text_preserves_non_math():
     assert result.startswith("Hello world.")
     assert result.endswith("Goodbye.")
     assert "α" in result
+
+
+def test_currency_amounts_are_not_treated_as_math():
+    assert render_math_in_text("It costs $5 and $10 today.") == "It costs $5 and $10 today."
+
+
+def test_shell_variables_are_not_treated_as_math():
+    assert render_math_in_text("Use $HOME and $PATH vars.") == "Use $HOME and $PATH vars."
+
+
+def test_escaped_dollar_is_not_treated_as_math():
+    assert render_math_in_text(r"costs \$5 and \$10") == r"costs \$5 and \$10"
+
+
+def test_real_inline_math_still_renders():
+    assert render_math_in_text(r"$\alpha + \beta$") == "α + β"

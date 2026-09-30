@@ -102,3 +102,19 @@ def test_update_index(store):
     index_path = store.wiki / "_index.md"
     assert index_path.exists()
     assert "test-article" in index_path.read_text()
+
+
+def test_two_raw_docs_with_the_same_title_produce_two_articles(store):
+    """A slug collision must not silently discard one document."""
+    _make_raw_file(store, "a.md", "# Deep Learning\n\nAAA")
+    _make_raw_file(store, "b.md", "# Deep Learning\n\nBBB")
+
+    backend = MagicMock()
+    backend.query.side_effect = ["ARTICLE-AAA", "ARTICLE-BBB", "INDEX"]
+
+    results = compile_all(store, backend)
+
+    assert len(set(results)) == 2, "both documents compiled to the same wiki path"
+    bodies = "".join(p.read_text() for p in set(results))
+    assert "ARTICLE-AAA" in bodies
+    assert "ARTICLE-BBB" in bodies

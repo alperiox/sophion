@@ -39,6 +39,26 @@ Start with a # Knowledge Base Index heading.\
 """
 
 
+def _wiki_path_for(store: Store, slug: str, raw_name: str) -> Path:
+    """Pick the wiki path for `raw_name`, avoiding collisions with other sources.
+
+    Recompiling the same raw document overwrites its own article; two raw
+    documents sharing a title get distinct articles instead of one silently
+    overwriting the other.
+    """
+    path = store.wiki / f"{slug}.md"
+    n = 1
+    while path.exists():
+        try:
+            if frontmatter.load(str(path)).get("source_raw") == raw_name:
+                return path
+        except Exception:
+            pass
+        n += 1
+        path = store.wiki / f"{slug}-{n}.md"
+    return path
+
+
 def compile_document(raw_path: Path, store: Store, backend: LLMBackend) -> Path:
     """Compile a single raw document into a wiki article."""
     raw_post = frontmatter.load(str(raw_path))
@@ -54,8 +74,7 @@ def compile_document(raw_path: Path, store: Store, backend: LLMBackend) -> Path:
 
     result = backend.query(prompt, system_prompt=COMPILE_SYSTEM_PROMPT)
 
-    slug = slugify(title)
-    wiki_path = store.wiki / f"{slug}.md"
+    wiki_path = _wiki_path_for(store, slugify(title), raw_path.name)
 
     wiki_post = frontmatter.Post(
         result,

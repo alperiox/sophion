@@ -119,3 +119,18 @@ def test_normalize_non_arxiv_unchanged():
 def test_normalize_ar5iv_unchanged():
     url = "https://ar5iv.labs.arxiv.org/html/2106.09685"
     assert _normalize_url(url) == url
+
+
+def test_ingesting_two_different_sources_with_the_same_title_keeps_both(store, tmp_path):
+    """Same-day, same-title ingests must not silently overwrite each other."""
+    a = tmp_path / "a.md"
+    a.write_text("# Deep Learning\n\nFirst document body AAA")
+    b = tmp_path / "b.md"
+    b.write_text("# Deep Learning\n\nSecond document body BBB")
+
+    path_a = ingest_file(str(a), store)
+    path_b = ingest_file(str(b), store)
+
+    assert path_a != path_b
+    assert "AAA" in path_a.read_text()
+    assert "BBB" in path_b.read_text()

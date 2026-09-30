@@ -256,7 +256,7 @@ The wiki is Obsidian-compatible — open `~/.sophion/knowledge/` (or any base di
 git clone https://github.com/alperiox/sophion.git
 cd sophion
 uv sync
-uv run pytest -v        # 133 tests
+uv run pytest -v        # 150 tests
 uv run sophion --help    # CLI commands
 ```
 

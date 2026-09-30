@@ -127,3 +127,40 @@ def test_gaps_since(tmp_path):
     assert added[0].topic == "new"
     assert len(resolved) == 1
     assert resolved[0].topic == "old"
+
+
+def test_corrupt_gaps_file_does_not_brick_the_tracker(tmp_path):
+    """A truncated gaps.json must not make every gap tool raise forever."""
+    path = tmp_path / "gaps.json"
+    path.write_text('[\n  {\n    "id": "abc",\n')  # truncated mid-write
+
+    tracker = GapTracker(path)  # must not raise
+    gap = tracker.add("diffusion", "why?")
+    assert tracker.get(gap.id) is not None
+
+
+def test_corrupt_gaps_file_is_preserved_not_destroyed(tmp_path):
+    path = tmp_path / "gaps.json"
+    path.write_text('[\n  {\n    "id": "abc",\n')
+
+    GapTracker(path)
+
+    salvaged = list(tmp_path.glob("gaps.json.corrupt*"))
+    assert salvaged, "corrupt gap data was discarded instead of preserved"
+
+
+def test_concurrent_trackers_do_not_lose_a_resolution(tmp_path):
+    """Two trackers open at once must not clobber each other's writes."""
+    path = tmp_path / "gaps.json"
+    seed = GapTracker(path)
+    g1 = seed.add("diffusion", "why does noise prediction equal the ELBO?")
+
+    a = GapTracker(path)
+    b = GapTracker(path)
+
+    a.resolve(g1.id, "because the KL terms telescope")
+    b.add("attention", "why scale by sqrt(d_k)?")
+
+    final = GapTracker(path)
+    assert final.get(g1.id).status == "resolved"
+    assert len(final.list_all()) == 2
